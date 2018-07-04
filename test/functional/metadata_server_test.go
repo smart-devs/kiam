@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"regexp"
 	"testing"
 	"time"
 
@@ -72,7 +73,7 @@ func TestPassthroughToMetadata(t *testing.T) {
 func TestPassthroughFiltering(t *testing.T) {
 	testutil.WithAWS(&testutil.AWSMetadata{InstanceID: "i-12345"}, context.Background(), func(ctx context.Context) {
 		config := defaultConfig()
-		config.AllowedRoutes = "[0-9]+"
+		config.AllowedRoutes = regexp.MustCompile("[0-9]+")
 		arnResolver := sts.DefaultResolver("arn:aws:iam::123456789012:role/")
 		policy := server.Policies(server.NewRequestingAnnotatedRolePolicy(nil, arnResolver))
 		server, _ := metadata.NewWebServer(config, nil, nil, policy)

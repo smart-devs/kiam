@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -40,7 +41,7 @@ type ServerConfig struct {
 	ListenPort       int
 	MetadataEndpoint string
 	AllowIPQuery     bool
-	AllowedRoutes    string
+	AllowedRoutes    *regexp.Regexp
 }
 
 func NewConfig(port int) *ServerConfig {
@@ -48,7 +49,7 @@ func NewConfig(port int) *ServerConfig {
 		MetadataEndpoint: "http://169.254.169.254",
 		ListenPort:       port,
 		AllowIPQuery:     false,
-		AllowedRoutes:    ".*",
+		AllowedRoutes:    regexp.MustCompile(".*"),
 	}
 }
 
@@ -91,7 +92,8 @@ func buildHTTPServer(config *ServerConfig, finder k8s.RoleFinder, credentials st
 	if err != nil {
 		return nil, err
 	}
-	router.Handle("/{path:"+config.AllowedRoutes+"}", httputil.NewSingleHostReverseProxy(metadataURL))
+	allowed := fmt.Sprintf("/{path:%s}", config.AllowedRoutes)
+	router.Handle(allowed, httputil.NewSingleHostReverseProxy(metadataURL))
 	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) })
 
 	listen := fmt.Sprintf(":%d", config.ListenPort)
