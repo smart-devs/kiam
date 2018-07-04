@@ -16,6 +16,12 @@ package metadata
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"strings"
+	"time"
+
 	"github.com/gorilla/mux"
 	"github.com/rcrowley/go-metrics"
 	"github.com/rcrowley/go-metrics/exp"
@@ -23,11 +29,6 @@ import (
 	"github.com/uswitch/kiam/pkg/aws/sts"
 	"github.com/uswitch/kiam/pkg/k8s"
 	"github.com/uswitch/kiam/pkg/server"
-	"net/http"
-	"net/http/httputil"
-	"net/url"
-	"strings"
-	"time"
 )
 
 type Server struct {
@@ -39,6 +40,7 @@ type ServerConfig struct {
 	ListenPort       int
 	MetadataEndpoint string
 	AllowIPQuery     bool
+	AllowedRoutes    string
 }
 
 func NewConfig(port int) *ServerConfig {
@@ -46,6 +48,7 @@ func NewConfig(port int) *ServerConfig {
 		MetadataEndpoint: "http://169.254.169.254",
 		ListenPort:       port,
 		AllowIPQuery:     false,
+		AllowedRoutes:    ".*",
 	}
 }
 
@@ -60,7 +63,7 @@ func NewWebServer(config *ServerConfig, finder k8s.RoleFinder, credentials sts.C
 func buildHTTPServer(config *ServerConfig, finder k8s.RoleFinder, credentials sts.CredentialsProvider, policy server.AssumeRolePolicy) (*http.Server, error) {
 	router := mux.NewRouter()
 	router.Handle("/metrics", exp.ExpHandler(metrics.DefaultRegistry))
-	router.Handle("/ping", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "pong") }))
+	router.HandleFunc("/ping", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "pong") })
 
 	h := &healthHandler{config.MetadataEndpoint}
 	router.Handle("/health", adapt(withMeter("health", h)))
@@ -88,7 +91,8 @@ func buildHTTPServer(config *ServerConfig, finder k8s.RoleFinder, credentials st
 	if err != nil {
 		return nil, err
 	}
-	router.Handle("/{path:.*}", httputil.NewSingleHostReverseProxy(metadataURL))
+	router.Handle("/{path:"+config.AllowedRoutes+"}", httputil.NewSingleHostReverseProxy(metadataURL))
+	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) })
 
 	listen := fmt.Sprintf(":%d", config.ListenPort)
 	return &http.Server{Addr: listen, Handler: loggingHandler(router)}, nil

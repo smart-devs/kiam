@@ -69,6 +69,29 @@ func TestPassthroughToMetadata(t *testing.T) {
 	})
 }
 
+func TestPassthroughFiltering(t *testing.T) {
+	testutil.WithAWS(&testutil.AWSMetadata{InstanceID: "i-12345"}, context.Background(), func(ctx context.Context) {
+		config := defaultConfig()
+		config.AllowedRoutes = "[0-9]+"
+		arnResolver := sts.DefaultResolver("arn:aws:iam::123456789012:role/")
+		policy := server.Policies(server.NewRequestingAnnotatedRolePolicy(nil, arnResolver))
+		server, _ := metadata.NewWebServer(config, nil, nil, policy)
+		go server.Serve()
+		waitForServer(defaultConfig(), t)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		defer server.Stop(ctx)
+
+		_, status, err := get(context.Background(), "/latest/meta-data/instance-id")
+		if err != nil {
+			t.Error(err)
+		}
+		if status != http.StatusForbidden {
+			t.Error("should have returned 403, was", status)
+		}
+	})
+}
+
 func TestReturnsHealthStatus(t *testing.T) {
 	testutil.WithAWS(&testutil.AWSMetadata{InstanceID: "i-12345"}, context.Background(), func(ctx context.Context) {
 		server, _ := newWebServer(testutil.NewStubFinder(nil), nil)
@@ -259,11 +282,10 @@ func waitForServer(config *metadata.ServerConfig, t *testing.T) {
 }
 
 func defaultConfig() *metadata.ServerConfig {
-	return &metadata.ServerConfig{
-		ListenPort:       3129,
-		MetadataEndpoint: "http://localhost:3199",
-		AllowIPQuery:     true,
-	}
+	config := metadata.NewConfig(3129)
+	config.MetadataEndpoint = "http://localhost:3199"
+	config.AllowIPQuery = true
+	return config
 }
 
 func get(ctx context.Context, path string) ([]byte, int, error) {
